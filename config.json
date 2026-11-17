@@ -1,0 +1,31 @@
+{
+  "autorizados": ["alexis_lopez", "carol_canizares", "jose_manzano", "manuel_ramirez"],
+  "dataset": "dataset",
+  "fuentes": {
+    "webcam": "dataset/webcam",
+    "humanos": "dataset/Human faces and object dataset/Human faces and object dataset/Images",
+    "sesiones": {"train": ["sesion1", "sesion2", "sesion3"], "val": ["sesion4"], "test": ["sesion5"]}
+  },
+  "artefactos": "artefactos",
+  "detector": "modelos/face_detection_yunet_2023mar.onnx",
+  "reconocedor": "modelos/face_recognition_sface_2021dec.onnx",
+  "seed": 42,
+  "coseno_minimo": 0.6,
+  "margen_minimo": 0.12,
+  "rostro_minimo_px": 100,
+  "frames_confirmacion": 5,
+  "reto_segundos": 15,
+  "pad": {
+    "modelo": null,
+    "ancho": 128,
+    "alto": 128,
+    "escala": 0.00392156862745098,
+    "media": [0, 0, 0],
+    "rgb": true,
+    "salida": "logits",
+    "indice_real": 1,
+    "umbral": 0.98
+  },
+  "despliegue_validado": false,
+  "rele": {"pin_bcm": 17, "activo_alto": true, "segundos": 3, "enfriamiento": 10}
+}
