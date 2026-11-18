@@ -27,5 +27,6 @@
     "umbral": 0.98
   },
   "despliegue_validado": false,
-  "rele": {"pin_bcm": 17, "activo_alto": true, "segundos": 3, "enfriamiento": 10}
+  "rele": {"pin_bcm": 17, "activo_alto": true, "segundos": 3, "enfriamiento": 10},
+  "arduino": {"puerto": null, "baudios": 9600, "activo": true}
 }
