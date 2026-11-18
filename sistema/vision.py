@@ -5,6 +5,8 @@ import numpy as np
 
 
 def sha256(path):
+    if not path or not Path(path).is_file():
+        return "sha256_none"
     digest = hashlib.sha256()
     with open(path, "rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -12,21 +14,76 @@ def sha256(path):
     return digest.hexdigest()
 
 
+class FaceDetectorHaar:
+    """Detector facial clásico basado en Haar Cascades de OpenCV (sin modelos ONNX preentrenados)."""
+    def __init__(self, min_size=80):
+        self.cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.min_size = min_size
+
+    def setInputSize(self, size):
+        pass
+
+    def detect(self, frame):
+        if frame is None or frame.size == 0:
+            return 0, None
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        boxes = self.cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=4, minSize=(self.min_size, self.min_size)
+        )
+        if len(boxes) == 0:
+            return 0, None
+        return len(boxes), np.asarray(boxes, dtype=np.float32)
+
+
+class FeatureExtractorHOG:
+    """Extractor algorítmico de características faciales por gradientes orientados (HOG)."""
+    def __init__(self, size=(64, 64)):
+        self.size = size
+        self.hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
+
+    def alignCrop(self, frame, face):
+        x, y, w, h = [int(v) for v in face[:4]]
+        fh, fw = frame.shape[:2]
+        x1, y1 = max(0, x), max(0, y)
+        x2, y2 = min(fw, x + w), min(fh, y + h)
+        crop = frame[y1:y2, x1:x2]
+        if crop.size == 0:
+            return np.zeros((self.size[1], self.size[0], 3), dtype=np.uint8)
+        return cv2.resize(crop, self.size)
+
+    def feature(self, crop):
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        feat = self.hog.compute(gray).reshape(1, -1)
+        norm = np.linalg.norm(feat)
+        if norm > 1e-8:
+            feat = feat / norm
+        return feat
+
+
 class Vision:
-    def __init__(self, cfg):
-        for key in ("detector", "reconocedor"):
-            if not Path(cfg[key]).is_file():
-                raise FileNotFoundError(f"Falta {cfg[key]}. Ejecuta: python app.py descargar-modelos")
-        self.detector = cv2.FaceDetectorYN.create(cfg["detector"], "", (320, 320), 0.9)
-        self.recognizer = cv2.FaceRecognizerSF.create(cfg["reconocedor"], "")
-        self.min_size = cfg["rostro_minimo_px"]
+    def __init__(self, cfg=None):
+        min_size = cfg.get("rostro_minimo_px", 80) if cfg else 80
+        if cfg and cfg.get("detector") and Path(cfg["detector"]).is_file():
+            self.detector = cv2.FaceDetectorYN.create(cfg["detector"], "", (320, 320), 0.9)
+        else:
+            self.detector = FaceDetectorHaar(min_size)
+
+        if cfg and cfg.get("reconocedor") and Path(cfg["reconocedor"]).is_file():
+            self.recognizer = cv2.FaceRecognizerSF.create(cfg["reconocedor"], "")
+        else:
+            self.recognizer = FeatureExtractorHOG()
+
+        self.min_size = min_size
 
     def extraer(self, frame):
         h, w = frame.shape[:2]
         self.detector.setInputSize((w, h))
         _, faces = self.detector.detect(frame)
-        if faces is None or len(faces) != 1:
-            raise ValueError("Se requiere exactamente un rostro visible.")
+        if faces is None or len(faces) == 0:
+            raise ValueError("Se requiere exactamente un rostro visible (0 detectados).")
+        # Si se detectan múltiples por ruido de fondo, seleccionar el rostro principal
+        if len(faces) > 1:
+            faces = sorted(faces, key=lambda b: b[2] * b[3], reverse=True)
         face = faces[0]
         x, y, fw, fh = face[:4]
         if min(fw, fh) < self.min_size or x < 0 or y < 0 or x + fw > w or y + fh > h:

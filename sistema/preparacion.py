@@ -139,8 +139,8 @@ def rasgos_humanos(frame):
 def cargar_fuentes(cfg, vision):
     manifest = cargar_manifiesto(cfg)
     signature = {"manifiesto": sha256(Path(cfg["artefactos"]) / "particiones.json"),
-                 "detector": sha256(cfg["detector"]), "reconocedor": sha256(cfg["reconocedor"]),
-                 "rostro_minimo_px": cfg["rostro_minimo_px"], "preprocesamiento": 2}
+                 "detector": sha256(cfg.get("detector")), "reconocedor": sha256(cfg.get("reconocedor")),
+                 "rostro_minimo_px": cfg["rostro_minimo_px"], "preprocesamiento": 3}
     # Caché local de arrays, nunca pickle de una fuente externa.
     import joblib
     cache = Path(cfg["artefactos"]) / "datos_cache.joblib"

@@ -229,8 +229,6 @@ class DatosYPADTests(unittest.TestCase):
     def test_modelos_reales_no_detectan_en_imagen_vacia(self):
         from sistema.vision import Vision
         cfg = config()
-        if not Path(cfg["detector"]).exists() or not Path(cfg["reconocedor"]).exists():
-            self.skipTest("Modelos públicos aún no descargados")
         vision = Vision(cfg)
         with self.assertRaisesRegex(ValueError, "exactamente un rostro"):
             vision.extraer(np.zeros((480, 640, 3), dtype=np.uint8))

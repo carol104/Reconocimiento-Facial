@@ -10,8 +10,13 @@ def cargar(path):
             or any(not isinstance(p, str) or not p.strip() or p in ("desconocidos", "__desconocido__", ".", "..")
                    or "/" in p or "\\" in p for p in people)):
         raise ValueError("Configura exactamente cuatro identificadores únicos de personas.")
-    for key in ("dataset", "artefactos", "detector", "reconocedor"):
+    for key in ("dataset", "artefactos"):
         cfg[key] = str((path.parent / cfg[key]).resolve())
+    for key in ("detector", "reconocedor"):
+        if cfg.get(key):
+            cfg[key] = str((path.parent / cfg[key]).resolve())
+        else:
+            cfg[key] = None
     if "fuentes" in cfg:
         for key in ("webcam", "humanos"):
             cfg["fuentes"][key] = str((path.parent / cfg["fuentes"][key]).resolve())

@@ -97,8 +97,8 @@ def entrenar(nombre, data, cfg, humanos=None):
         "version": 1, "algoritmo": nombre, "modelo": model, "personas": people,
         "centros": centers, "coseno_minimo": float(threshold), "margen_minimo": float(margin),
         "config_coseno_minimo": cfg["coseno_minimo"], "config_margen_minimo": cfg["margen_minimo"],
-        "detector_sha256": sha256(cfg["detector"]),
-        "reconocedor_sha256": sha256(cfg["reconocedor"]), "evaluacion_basica_aprobada": ready,
+        "detector_sha256": sha256(cfg.get("detector")),
+        "reconocedor_sha256": sha256(cfg.get("reconocedor")), "evaluacion_basica_aprobada": ready,
         "reporte": report,
     }
     output = Path(cfg["artefactos"])
@@ -131,7 +131,7 @@ def cargar_artefacto(nombre, cfg):
             or artifact["config_margen_minimo"] != cfg["margen_minimo"]):
         raise ValueError("Cambiaste los umbrales base. Reentrena y calibra.")
     for key in ("detector", "reconocedor"):
-        if artifact[f"{key}_sha256"] != sha256(cfg[key]):
+        if artifact[f"{key}_sha256"] != sha256(cfg.get(key)):
             raise ValueError(f"Cambió el modelo de {key}. Reentrena.")
     return artifact
 

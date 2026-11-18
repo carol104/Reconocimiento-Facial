@@ -9,3 +9,6 @@ def crear(nombre, seed=42):
     if nombre not in NOMBRES:
         raise ValueError(f"Algoritmo no válido: {nombre}")
     return import_module(f"algoritmos.{nombre}").crear(seed)
+
+
+CREAR = crear

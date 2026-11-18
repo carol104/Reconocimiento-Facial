@@ -1,11 +1,19 @@
-"""CLI común: preparar, entrenar, comparar y ejecutar en Raspberry Pi."""
+"""CLI común: preparar, entrenar, comparar y ejecutar en Raspberry Pi.
+Estructurado por Fases:
+- Fase 1: Percepción Computacional (percepcion_computacional)
+- Fase 2: Reconocimiento (reconocimiento)
+- Fase 3: Clasificación y Control de Acceso (clasificacion)
+"""
 import argparse
 import json
 from pathlib import Path
 import signal
 from urllib.error import URLError
-from algoritmos import NOMBRES
-from sistema.config import cargar
+
+# Fase 3: Clasificación
+from clasificacion import NOMBRES
+# Fase 2: Reconocimiento
+from reconocimiento import cargar_config as cargar
 
 
 def parser():
@@ -34,7 +42,7 @@ def main():
     cfg = cargar(args.config)
     if args.comando == "preparar":
         if "fuentes" in cfg:
-            from sistema.preparacion import preparar_fuentes
+            from reconocimiento.preparacion import preparar_fuentes
             preparar_fuentes(cfg)
             return
         for split in ("train", "val", "test"):
@@ -47,15 +55,15 @@ def main():
         from sistema.modelos import descargar
         descargar(cfg)
     elif args.comando == "entrenar-pad":
-        from sistema.vision import Vision
+        from percepcion_computacional.vision import Vision
         from sistema.entrenar_pad import entrenar_pad
         if args.epocas < 1:
             raise ValueError("El número de épocas debe ser positivo.")
         entrenar_pad(cfg, args.datos, Vision(cfg), args.epocas)
     elif args.comando == "entrenar":
-        from sistema.vision import Vision
-        from sistema.datos import cargar_dataset
-        from sistema.entrenamiento import entrenar
+        from percepcion_computacional.vision import Vision
+        from reconocimiento.datos import cargar_dataset
+        from clasificacion.entrenamiento import entrenar
         names = NOMBRES if args.algoritmo == "todos" else (args.algoritmo,)
         if "cnn" in names:
             import importlib.util
@@ -63,8 +71,8 @@ def main():
                 raise ValueError("Para CNN instala requirements-cnn.txt antes de entrenar.")
         reports = []
         if "fuentes" in cfg:
-            from sistema.preparacion import cargar_fuentes
-            from sistema.humanos import entrenar_humanos
+            from reconocimiento.preparacion import cargar_fuentes
+            from percepcion_computacional.humanos import entrenar_humanos
             data = cargar_fuentes(cfg, Vision(cfg))
             for name in names:
                 human_artifact = None
@@ -78,7 +86,7 @@ def main():
                 raise ValueError("Configura fuentes.humanos para entrenar humano/objeto.")
             data = cargar_dataset(cfg, Vision(cfg))
             reports = [entrenar(name, data, cfg) for name in names]
-        from sistema.reportes import comparar
+        from reconocimiento.reportes import comparar
         comparar(reports, cfg)
         print(f"Informes guardados en {cfg['artefactos']}")
     else:
@@ -86,8 +94,8 @@ def main():
             print("\n" + "=" * 62)
             print(f" [PASO 1/2] ENTRENANDO Y TESTEANDO EL MODELO: {args.algoritmo.upper()}")
             print("=" * 62)
-            from sistema.vision import Vision
-            from sistema.entrenamiento import entrenar
+            from percepcion_computacional.vision import Vision
+            from clasificacion.entrenamiento import entrenar
             names = NOMBRES if args.algoritmo == "todos" else (args.algoritmo,)
             if "cnn" in names:
                 import importlib.util
@@ -95,8 +103,8 @@ def main():
                     raise ValueError("Para CNN instala requirements-cnn.txt antes de entrenar.")
             vision = Vision(cfg)
             if "fuentes" in cfg:
-                from sistema.preparacion import cargar_fuentes
-                from sistema.humanos import cargar_humanos, entrenar_humanos
+                from reconocimiento.preparacion import cargar_fuentes
+                from percepcion_computacional.humanos import cargar_humanos, entrenar_humanos
                 data = cargar_fuentes(cfg, vision)
                 for name in names:
                     human_path = Path(cfg["artefactos"]) / f"humanos_{name}.joblib"
@@ -106,7 +114,7 @@ def main():
                         _, human_art = entrenar_humanos(name, data["humanos"], cfg)
                     entrenar(name, data["identidad"], cfg, humanos=human_art)
             else:
-                from sistema.datos import cargar_dataset
+                from reconocimiento.datos import cargar_dataset
                 data = cargar_dataset(cfg, vision)
                 for name in names:
                     entrenar(name, data, cfg)
@@ -117,7 +125,8 @@ def main():
         print("\n" + "=" * 62)
         print(f" [PASO 2/2] ABRIENDO CÁMARA PARA DETECCIÓN EN VIVO")
         print("=" * 62 + "\n")
-        from sistema.camara import ejecutar
+        from percepcion_computacional.camara import ejecutar
+        ejecutar(cfg, args.algoritmo, args.camara, args.hardware, not args.sin_ventana)
         ejecutar(cfg, args.algoritmo, args.camara, args.hardware, not args.sin_ventana)
 
 
