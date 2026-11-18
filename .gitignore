@@ -1,9 +1,90 @@
+# ==========================================
+# Entornos virtuales de Python
+# ==========================================
 .venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# ==========================================
+# Bytecode y Cachés de Python
+# ==========================================
 __pycache__/
 *.py[cod]
-artefactos/
-modelos/
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ==========================================
+# Datasets y Datos Pesados
+# ==========================================
 dataset/**
 !dataset/.gitkeep
 dataset_pad/
+dataset_pad/**
+!dataset_pad/.gitkeep
+
+# ==========================================
+# Modelos Preentrenados y Pesos Binarios
+# ==========================================
+modelos/
+*.onnx
+*.pt
+*.pth
+*.h5
+*.tflite
+*.joblib
+*.pkl
+*.pickle
+
+# ==========================================
+# Artefactos generados (capturas, logs y reportes)
+# ==========================================
+artefactos/*
+!artefactos/.gitkeep
 *.download
+
+# ==========================================
+# Archivos comprimidos y respaldos
+# ==========================================
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.bak
+*.tmp
+
+# ==========================================
+# Logs y Auditorías
+# ==========================================
+*.log
+*.log.*
+
+# ==========================================
+# Editores e IDEs
+# ==========================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# ==========================================
+# Archivos del Sistema Operativo
+# ==========================================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride

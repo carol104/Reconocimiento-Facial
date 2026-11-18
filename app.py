@@ -19,7 +19,14 @@ from reconocimiento import cargar_config as cargar
 def parser():
     root = argparse.ArgumentParser(description="Acceso facial de cuatro personas")
     root.add_argument("--config", default="config.json")
-    sub = root.add_subparsers(dest="comando", required=True)
+    root.add_argument("--algoritmo", choices=(*NOMBRES, "todos"), default="todos", help="Algoritmo clasificador a utilizar")
+    root.add_argument("--camara", type=int, default=0, help="Índice de la cámara")
+    root.add_argument("--hardware", action="store_true", help="Activar relé si pasan las verificaciones")
+    root.add_argument("--sin-ventana", action="store_true", help="Ejecutar en modo sin interfaz gráfica")
+    root.add_argument("--no-entrenar", action="store_true", help="Omitir reentrenamiento previo a la cámara")
+    root.add_argument("--tarea", choices=("todos", "humanos", "identidad"), default="todos")
+
+    sub = root.add_subparsers(dest="comando", required=False)
     sub.add_parser("preparar", help="Separar las fuentes por sesiones y crear manifiesto")
     sub.add_parser("descargar-modelos", help="Descargar YuNet y SFace oficiales")
     pad = sub.add_parser("entrenar-pad", help="Entrenar CNN antispoofing con reales y ataques")
@@ -39,6 +46,8 @@ def parser():
 
 def main():
     args = parser().parse_args()
+    if not args.comando:
+        args.comando = "ejecutar"
     cfg = cargar(args.config)
     if args.comando == "preparar":
         if "fuentes" in cfg:
