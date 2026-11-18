@@ -1,30 +1,31 @@
 """Módulo de captura de cámara, guía visual limpia y control de acceso facial.
-Diseñado para ser responsive y minimalista en laptop y Raspberry Pi con cámara.
+Diseñado para ser responsive, minimalista y permitir probar todos los algoritmos.
 """
 import json
 from pathlib import Path
 import time
 import cv2
 import numpy as np
+from algoritmos import NOMBRES
 from sistema.vision import Vision, PAD
 from sistema.entrenamiento import cargar_artefacto, identificar
 from sistema.acceso import Acceso, Puerta, verificar_hardware
 
 
 def dibujar_esquinas(frame, x1, y1, x2, y2, color, grosor=3, longitud=35):
-    """Dibuja esquinas estilizadas y proporcionales en el recuadro guía de encuadre."""
+    """Dibuja esquinas ortogonales estilizadas y rectas en el recuadro guía de encuadre."""
     # Superior izquierda
     cv2.line(frame, (x1, y1), (x1 + longitud, y1), color, grosor)
     cv2.line(frame, (x1, y1), (x1, y1 + longitud), color, grosor)
-    # Superior derecha
+    # Superior derecha (recta a 90 grados)
     cv2.line(frame, (x2, y1), (x2 - longitud, y1), color, grosor)
-    cv2.line(frame, (x2, y1), (x2 - longitud, y1 + longitud), color, grosor)
+    cv2.line(frame, (x2, y1), (x2, y1 + longitud), color, grosor)
     # Inferior izquierda
     cv2.line(frame, (x1, y2), (x1 + longitud, y2), color, grosor)
     cv2.line(frame, (x1, y2), (x1, y2 - longitud), color, grosor)
-    # Inferior derecha
+    # Inferior derecha (recta a 90 grados)
     cv2.line(frame, (x2, y2), (x2 - longitud, y2), color, grosor)
-    cv2.line(frame, (x2, y2), (x2 - longitud, y2 - longitud), color, grosor)
+    cv2.line(frame, (x2, y2), (x2, y2 - longitud), color, grosor)
 
 
 def superponer_panel(frame, y1, y2, color=(16, 16, 16), alpha=0.75):
@@ -37,12 +38,12 @@ def superponer_panel(frame, y1, y2, color=(16, 16, 16), alpha=0.75):
 def calcular_escala_texto(texto, max_ancho, escala_base, grosor=2):
     """Calcula la escala exacta de fuente para que el texto nunca se corte."""
     escala = escala_base
-    while escala > 0.35:
+    while escala > 0.30:
         (tw, _), _ = cv2.getTextSize(texto, cv2.FONT_HERSHEY_SIMPLEX, escala, grosor)
         if tw <= max_ancho:
             break
         escala -= 0.04
-    return max(0.35, escala)
+    return max(0.30, escala)
 
 
 def dibujar_texto_centrado(frame, texto, y_centro, color, escala_base=1.0, grosor=3):
@@ -57,21 +58,48 @@ def dibujar_texto_centrado(frame, texto, y_centro, color, escala_base=1.0, groso
 
 
 def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
-    artifact = cargar_artefacto(algoritmo, cfg)
-    human_artifact = None
-    if "fuentes" in cfg:
-        from sistema.humanos import cargar_humanos, es_humano
-        human_artifact = cargar_humanos(algoritmo, cfg)
+    # Lista ordenada de algoritmos para alternar fácilmente
+    LISTA_ALGORITMOS = ("svm", "knn", "ann", "cnn", "random_forest", "arbol_decision")
+    algoritmo_actual = "svm" if algoritmo == "todos" else algoritmo
+
+    # Caché local de modelos para cambio instantáneo sin demora
+    artefactos_cache = {}
+    humanos_cache = {}
+
+    def obtener_artefacto(nombre):
+        if nombre not in artefactos_cache:
+            artefactos_cache[nombre] = cargar_artefacto(nombre, cfg)
+        return artefactos_cache[nombre]
+
+    def obtener_humano(nombre):
+        if "fuentes" in cfg:
+            if nombre not in humanos_cache:
+                from sistema.humanos import cargar_humanos
+                humanos_cache[nombre] = cargar_humanos(nombre, cfg)
+            return humanos_cache[nombre]
+        return None
+
+    def obtener_errores(art):
+        m = art.get("reporte", {}).get("metricas", {})
+        tr = m.get("train", {}).get("error_clasificacion_conocidos", 0.0)
+        te = m.get("test", {}).get("error_clasificacion_conocidos", 0.0)
+        tr_pct = f"{tr * 100:.2f}%" if tr is not None else "0.00%"
+        te_pct = f"{te * 100:.2f}%" if te is not None else "0.00%"
+        return tr_pct, te_pct
+
+    artifact = obtener_artefacto(algoritmo_actual)
+    human_artifact = obtener_humano(algoritmo_actual)
+    train_err_pct, test_err_pct = obtener_errores(artifact)
+
     vision, pad = Vision(cfg), PAD(cfg["pad"])
     if hardware:
         verificar_hardware(cfg, artifact, pad.net is not None or pad.local is not None)
 
     print("Modo GPIO (Hardware activado)" if hardware else "Modo simulación (sin GPIO)")
-    if pad.net is None and pad.local is None:
-        if hardware:
-            print("Aviso: Falta PAD para hardware.")
-        else:
-            print("Modo simulación: Reconocimiento facial directo y activo.")
+    print(f"\n[SISTEMA LISTO] Algoritmo activo: {algoritmo_actual.upper()}")
+    print("-> Teclas para cambiar algoritmo en vivo:")
+    print("   [1] SVM | [2] KNN | [3] ANN | [4] CNN | [5] Random Forest | [6] Arbol de Decision")
+    print("   [TAB] o [A]: Pasar al siguiente algoritmo | [F]: Pantalla completa | [Q]: Salir\n")
 
     gate = Acceso(cfg)
     capture = cv2.VideoCapture(camera)
@@ -93,10 +121,9 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
     def registrar_evento(evento, persona=None):
         nonlocal last_log_message
         if evento != last_log_message:
-            print(f"[{time.strftime('%H:%M:%S')}] {evento}" + (f" ({persona})" if persona else ""))
             data = {
                 "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "algoritmo": algoritmo,
+                "algoritmo": algoritmo_actual,
                 "evento": evento,
                 "persona": persona,
                 "gpio": hardware
@@ -105,12 +132,39 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                 stream.write(json.dumps(data, ensure_ascii=False) + "\n")
             last_log_message = evento
 
+    def imprimir_resumen_acceso(autorizado, nombre_persona):
+        estado_puerta = "SE ABRIO" if autorizado else "NO SE ABRIO"
+        print("\n" + "=" * 58)
+        print("                 RESULTADO DE ACCESO")
+        print("=" * 58)
+        print(f"  Algoritmo en uso:               {algoritmo_actual.upper()}")
+        print(f"  Identidad:                      {nombre_persona}")
+        print(f"  Resultado de la puerta:         {estado_puerta}")
+        print(f"  Error de entrenamiento (Train): {train_err_pct}")
+        print(f"  Error de prueba (Test):          {test_err_pct}")
+        print("=" * 58 + "\n", flush=True)
+
+    def cambiar_algoritmo(nuevo_nombre):
+        nonlocal algoritmo_actual, artifact, human_artifact, train_err_pct, test_err_pct
+        nonlocal estabilidad_cuadros, resultado_bloqueo_hasta
+        if nuevo_nombre in LISTA_ALGORITMOS:
+            algoritmo_actual = nuevo_nombre
+            artifact = obtener_artefacto(algoritmo_actual)
+            human_artifact = obtener_humano(algoritmo_actual)
+            train_err_pct, test_err_pct = obtener_errores(artifact)
+            gate.reset()
+            estabilidad_cuadros = 0
+            resultado_bloqueo_hasta = 0
+            print(f"[CAMBIO EN VIVO] Algoritmo cambiado a: {algoritmo_actual.upper()} (Train: {train_err_pct} | Test: {test_err_pct})")
+
     # Variables de control
     estabilidad_cuadros = 0
     REQUERIDOS_ESTABILIDAD = 3
     resultado_bloqueo_hasta = 0
     resultado_tipo = None  # "CONCEDIDO" o "DENEGADO"
     resultado_mensaje = ""
+    resultado_submensaje = ""
+    primera_deteccion_hecha = False
 
     # Colores BGR
     AMARILLO = (0, 220, 255)
@@ -133,8 +187,9 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                 # ==============================================================
                 # CÁLCULOS RESPONSIVE (Laptop y Raspberry Pi)
                 # ==============================================================
-                top_h = max(60, int(h * 0.14))
-                base_scale_res = max(0.8, min(1.4, w / 850.0))
+                top_h = max(70, int(h * 0.16))
+                base_scale_res = max(0.8, min(1.3, w / 900.0))
+                base_scale_sub = max(0.46, min(0.72, w / 1400.0))
 
                 # Recuadro central de encuadre guía
                 gw = int(w * 0.42)
@@ -158,12 +213,14 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                     if preview:
                         color_res = VERDE if resultado_tipo == "CONCEDIDO" else ROJO
 
-                        # Panel superior con el texto final centrado
-                        superponer_panel(frame, 0, top_h, color=(12, 12, 12), alpha=0.82)
-                        dibujar_texto_centrado(frame, resultado_mensaje, top_h // 2, color_res,
+                        # Panel superior con mensaje y resumen de errores
+                        superponer_panel(frame, 0, top_h, color=(12, 12, 12), alpha=0.85)
+                        dibujar_texto_centrado(frame, resultado_mensaje, int(top_h * 0.40), color_res,
                                                escala_base=base_scale_res, grosor=3)
+                        dibujar_texto_centrado(frame, resultado_submensaje, int(top_h * 0.82), (220, 220, 220),
+                                               escala_base=base_scale_sub, grosor=1)
 
-                        # Recuadro en el color de resultado
+                        # Recuadro ortogonal en el color de resultado
                         dibujar_esquinas(frame, gx1, gy1, gx2, gy2, color_res,
                                          grosor=corner_thick + 1, longitud=corner_len)
 
@@ -175,7 +232,19 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                             is_fullscreen = not is_fullscreen
                             cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN,
                                                   cv2.WINDOW_FULLSCREEN if is_fullscreen else cv2.WINDOW_NORMAL)
+                        elif key in (ord("\t"), ord("a"), ord("A")):
+                            idx = (LISTA_ALGORITMOS.index(algoritmo_actual) + 1) % len(LISTA_ALGORITMOS)
+                            cambiar_algoritmo(LISTA_ALGORITMOS[idx])
+                        elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5"), ord("6")):
+                            idx = int(chr(key)) - 1
+                            if 0 <= idx < len(LISTA_ALGORITMOS):
+                                cambiar_algoritmo(LISTA_ALGORITMOS[idx])
                     continue
+
+                # Si ya se mostró el resultado de la primera detección, cerramos el programa por lo pronto
+                if primera_deteccion_hecha:
+                    print("\n[FIN] Detección completada (primera vez). Cerrando el programa...")
+                    break
 
                 # ==============================================================
                 # 2. SEGUIMIENTO VISUAL: AMARILLO O VERDE SEGÚN POSICIÓN
@@ -243,6 +312,7 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                         # 3. ESCANEO Y RESPUESTA FINAL DETERMINANTE
                         # ==============================================================
                         if rostro_listo:
+                            from sistema.humanos import es_humano
                             if human_artifact is not None and not es_humano(human_artifact, frame):
                                 color_cuadro = AMARILLO
                             else:
@@ -263,30 +333,54 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                                         if person in cfg["autorizados"] and live:
                                             # AUTORIZADO: TEXTO EN VERDE CON BIENVENIDO Y NOMBRE
                                             nombre_formateado = person.replace('_', ' ').upper()
-                                            resultado_bloqueo_hasta = now + 3.5
+                                            resultado_bloqueo_hasta = now + 3.0
                                             resultado_tipo = "CONCEDIDO"
                                             resultado_mensaje = f"BIENVENIDO {nombre_formateado}"
+                                            resultado_submensaje = f"Puerta: SE ABRIO | Error Train: {train_err_pct} | Error Test: {test_err_pct}"
                                             door.abrir()
                                             gate.next_allowed = now + cfg["rele"]["enfriamiento"]
+                                            imprimir_resumen_acceso(True, nombre_formateado)
                                             registrar_evento(f"Acceso concedido: {nombre_formateado}", person)
                                             gate.reset()
                                             estabilidad_cuadros = 0
+                                            primera_deteccion_hecha = True
                                         else:
                                             # NO AUTORIZADO: TEXTO EN ROJO CON ACCESO DENEGADO
                                             resultado_bloqueo_hasta = now + 3.0
                                             resultado_tipo = "DENEGADO"
                                             resultado_mensaje = "ACCESO DENEGADO"
+                                            resultado_submensaje = f"Puerta: NO SE ABRIO | Error Train: {train_err_pct} | Error Test: {test_err_pct}"
+                                            imprimir_resumen_acceso(False, "NO AUTORIZADA")
                                             registrar_evento("Acceso denegado: persona no autorizada", person or "__desconocido__")
                                             gate.reset()
                                             estabilidad_cuadros = 0
+                                            primera_deteccion_hecha = True
                                 except ValueError:
                                     pass
 
+                if not preview and primera_deteccion_hecha:
+                    print("\n[FIN] Detección completada (primera vez). Cerrando el programa...")
+                    break
+
                 # ==============================================================
-                # 4. RENDERIZADO VISUAL LIMPIO (SIN TEXTOS DE AJUSTE)
+                # 4. RENDERIZADO VISUAL LIMPIO Y RESPONSIVE
                 # ==============================================================
                 if preview:
-                    # Recuadro central de encuadre (Amarillo o Verde)
+                    # Titulito superior discreto con el algoritmo en uso
+                    badge_texto = f"Algoritmo: {algoritmo_actual.upper()}"
+                    badge_scale = max(0.42, min(0.62, w / 1600.0))
+                    (btw, bth), _ = cv2.getTextSize(badge_texto, cv2.FONT_HERSHEY_SIMPLEX, badge_scale, 1)
+                    badge_x = (w - btw) // 2
+                    badge_y = 26
+                    # Placa semitransparente para el titulito
+                    overlay_badge = frame.copy()
+                    cv2.rectangle(overlay_badge, (badge_x - 14, badge_y - bth - 6),
+                                  (badge_x + btw + 14, badge_y + 8), (18, 18, 18), -1)
+                    cv2.addWeighted(overlay_badge, 0.70, frame, 0.30, 0, frame)
+                    cv2.putText(frame, badge_texto, (badge_x, badge_y),
+                                cv2.FONT_HERSHEY_SIMPLEX, badge_scale, (220, 220, 220), 1, cv2.LINE_AA)
+
+                    # Recuadro central de encuadre (Ortogonal: Amarillo o Verde)
                     dibujar_esquinas(frame, gx1, gy1, gx2, gy2, color_cuadro,
                                      grosor=corner_thick, longitud=corner_len)
 
@@ -295,9 +389,10 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                         fx, fy, fw, fh = cara_detectada[:4].astype(int)
                         cv2.rectangle(frame, (fx, fy), (fx + fw, fy + fh), color_cuadro, face_thick)
 
-                    # Indicador discreto de salida en la esquina inferior
-                    cv2.putText(frame, "Q: Salir | F: Pantalla", (16, h - 16),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 150, 150), 1, cv2.LINE_AA)
+                    # Indicador discreto de opciones en la esquina inferior
+                    hint_txt = "Q: Salir | F: Pantalla | TAB / 1-6: Cambiar Algoritmo" if w >= 650 else "Q: Salir | TAB: Algoritmo"
+                    cv2.putText(frame, hint_txt, (16, h - 16),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.40, (160, 160, 160), 1, cv2.LINE_AA)
 
                     cv2.imshow(window_name, frame)
                     key = cv2.waitKey(1) & 0xFF
@@ -307,6 +402,13 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                         is_fullscreen = not is_fullscreen
                         cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN,
                                               cv2.WINDOW_FULLSCREEN if is_fullscreen else cv2.WINDOW_NORMAL)
+                    elif key in (ord("\t"), ord("a"), ord("A")):
+                        idx = (LISTA_ALGORITMOS.index(algoritmo_actual) + 1) % len(LISTA_ALGORITMOS)
+                        cambiar_algoritmo(LISTA_ALGORITMOS[idx])
+                    elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5"), ord("6")):
+                        idx = int(chr(key)) - 1
+                        if 0 <= idx < len(LISTA_ALGORITMOS):
+                            cambiar_algoritmo(LISTA_ALGORITMOS[idx])
     finally:
         capture.release()
         if preview:

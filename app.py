@@ -21,10 +21,11 @@ def parser():
     train.add_argument("--algoritmo", choices=(*NOMBRES, "todos"), default="todos")
     train.add_argument("--tarea", choices=("todos", "humanos", "identidad"), default="todos")
     run = sub.add_parser("ejecutar", help="Reconocer desde cámara; simulación por defecto")
-    run.add_argument("--algoritmo", choices=NOMBRES, required=True)
+    run.add_argument("--algoritmo", choices=(*NOMBRES, "todos"), default="todos")
     run.add_argument("--camara", type=int, default=0)
     run.add_argument("--hardware", action="store_true", help="Activar relé si pasan las verificaciones")
     run.add_argument("--sin-ventana", action="store_true")
+    run.add_argument("--no-entrenar", action="store_true", help="Omitir reentrenamiento previo a la cámara")
     return root
 
 
@@ -81,6 +82,41 @@ def main():
         comparar(reports, cfg)
         print(f"Informes guardados en {cfg['artefactos']}")
     else:
+        if not args.no_entrenar:
+            print("\n" + "=" * 62)
+            print(f" [PASO 1/2] ENTRENANDO Y TESTEANDO EL MODELO: {args.algoritmo.upper()}")
+            print("=" * 62)
+            from sistema.vision import Vision
+            from sistema.entrenamiento import entrenar
+            names = NOMBRES if args.algoritmo == "todos" else (args.algoritmo,)
+            if "cnn" in names:
+                import importlib.util
+                if importlib.util.find_spec("torch") is None:
+                    raise ValueError("Para CNN instala requirements-cnn.txt antes de entrenar.")
+            vision = Vision(cfg)
+            if "fuentes" in cfg:
+                from sistema.preparacion import cargar_fuentes
+                from sistema.humanos import cargar_humanos, entrenar_humanos
+                data = cargar_fuentes(cfg, vision)
+                for name in names:
+                    human_path = Path(cfg["artefactos"]) / f"humanos_{name}.joblib"
+                    if human_path.exists():
+                        human_art = cargar_humanos(name, cfg)
+                    else:
+                        _, human_art = entrenar_humanos(name, data["humanos"], cfg)
+                    entrenar(name, data["identidad"], cfg, humanos=human_art)
+            else:
+                from sistema.datos import cargar_dataset
+                data = cargar_dataset(cfg, vision)
+                for name in names:
+                    entrenar(name, data, cfg)
+            print("=" * 62)
+            print(" Entrenamiento y testeo completados exitosamente.")
+            print("=" * 62)
+
+        print("\n" + "=" * 62)
+        print(f" [PASO 2/2] ABRIENDO CÁMARA PARA DETECCIÓN EN VIVO")
+        print("=" * 62 + "\n")
         from sistema.camara import ejecutar
         ejecutar(cfg, args.algoritmo, args.camara, args.hardware, not args.sin_ventana)
 
