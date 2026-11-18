@@ -66,9 +66,15 @@ class Acceso:
         if now < self.next_allowed:
             self.reset()
             return False, "Enfriamiento"
-        if not live or person in (None, "__desconocido__"):
+        if person is None:
             self.reset()
-            return False, "Acceso denegado: identidad o prueba de vida"
+            return False, "Esperando rostro..."
+        if not live:
+            self.reset()
+            return False, "Acceso denegado: prueba de vida"
+        if person == "__desconocido__":
+            self.reset()
+            return False, "Acceso denegado: persona no autorizada"
         if person != self.person or (self.last_seen is not None and now - self.last_seen > 2):
             self.reset()
             self.person = person
