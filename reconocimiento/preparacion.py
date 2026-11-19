@@ -23,6 +23,9 @@ def leer_imagen(path):
 def preparar_fuentes(cfg):
     source = cfg["fuentes"]
     webcam, humanos = Path(source["webcam"]), Path(source["humanos"])
+    modo = source.get("reparto_identidad", "sesiones")
+    if modo not in ("sesiones", "mezclado"):
+        raise ValueError("reparto_identidad debe ser sesiones o mezclado.")
     sesiones = source["sesiones"]
     if set(sesiones) != set(PARTICIONES) or any(not sesiones[s] for s in PARTICIONES):
         raise ValueError("Configura sesiones de train, val y test.")
@@ -51,7 +54,7 @@ def preparar_fuentes(cfg):
                     "original": previous["path"], "label_original": previous["label"]})
                 return None
             if previous["tarea"] != task or previous["label"] != label or (
-                    task == "identidad" and previous["sesion"] != session):
+                    task == "identidad" and modo == "sesiones" and previous["sesion"] != session):
                 raise ValueError(f"Duplicado entre clases, sesiones o tareas: {path} y {previous['path']}")
             manifest["duplicados_omitidos"].append({"path": str(path), "original": previous["path"]})
             return None
@@ -61,6 +64,7 @@ def preparar_fuentes(cfg):
         return row
 
     for person in cfg["autorizados"]:
+        person_rows = []
         actual = {p.name for p in (webcam / person).iterdir() if p.is_dir()}
         if actual != set(all_sessions):
             raise ValueError(f"Sesiones de {person}: {sorted(actual)}; deben figurar todas en fuentes.sesiones.")
@@ -73,7 +77,18 @@ def preparar_fuentes(cfg):
                 for path in paths:
                     row = registro(path, person, split, session)
                     if row:
-                        manifest["identidad"].append(row)
+                        person_rows.append(row)
+        if modo == "mezclado":
+            if len(person_rows) < 5:
+                raise ValueError(f"Muy pocas imágenes únicas para {person} (mínimo 5).")
+            train, rest = train_test_split(person_rows, test_size=.4, random_state=cfg["seed"])
+            val, test = train_test_split(rest, test_size=.5, random_state=cfg["seed"])
+            for split, partition in zip(PARTICIONES, (train, val, test)):
+                for row in partition:
+                    row["split"] = split
+                    manifest["identidad"].append(row)
+        else:
+            manifest["identidad"].extend(person_rows)
     # Las rutas absolutas del CSV original pertenecen a otro equipo. Usamos las carpetas reales.
     human_rows = {}
     for label, folders in {"humano": ("male_faces", "female_faces"), "objeto": ("Objects",)}.items():

@@ -2,6 +2,7 @@
   "autorizados": ["alexis_lopez", "carol_canizares", "jose_manzano", "manuel_ramirez"],
   "dataset": "dataset",
   "fuentes": {
+    "reparto_identidad": "mezclado",
     "webcam": "dataset/webcam",
     "humanos": "dataset/Human faces and object dataset/Human faces and object dataset/Images",
     "sesiones": {"train": ["sesion1", "sesion2", "sesion3"], "val": ["sesion4"], "test": ["sesion5"]}

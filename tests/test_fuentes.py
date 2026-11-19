@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
+import importlib
 
 import cv2
 import numpy as np
@@ -73,6 +74,34 @@ class FuentesTests(unittest.TestCase):
             (root / "webcam/a/s5/0.png").write_bytes((root / "webcam/a/s1/0.png").read_bytes())
             with self.assertRaisesRegex(ValueError, "Duplicado entre"):
                 preparar_fuentes(cfg)
+
+    def test_mezclado_por_persona_reproducible_sin_duplicados(self):
+        # Inicializa los paquetes en el mismo orden que el punto de entrada CLI.
+        import app
+
+        for module in ("sistema.preparacion", "reconocimiento.preparacion"):
+            with self.subTest(module=module), tempfile.TemporaryDirectory() as temp, contextlib.redirect_stdout(io.StringIO()):
+                root = Path(temp)
+                cfg = self.crear_fuentes(root)
+                cfg["fuentes"]["reparto_identidad"] = "mezclado"
+                prepare = importlib.import_module(module).preparar_fuentes
+                first = prepare(cfg)
+                self.assertEqual(first, prepare(cfg))
+                for person in cfg["autorizados"]:
+                    rows = [r for r in first["identidad"] if r["label"] == person]
+                    self.assertEqual(len(rows), 15)
+                    for split, count in (("train", 9), ("val", 3), ("test", 3)):
+                        part = [r for r in rows if r["split"] == split]
+                        self.assertEqual(len(part), count)
+                    self.assertTrue(any(r["sesion"] not in cfg["fuentes"]["sesiones"][r["split"]] for r in rows))
+                source = root / "webcam/a/s1/0.png"
+                (root / "webcam/a/s5/duplicado.png").write_bytes(source.read_bytes())
+                deduplicated = prepare(cfg)
+                self.assertEqual(first["identidad"], deduplicated["identidad"])
+                self.assertEqual(len(deduplicated["duplicados_omitidos"]), 1)
+                (root / "webcam/b/s1/duplicado.png").write_bytes(source.read_bytes())
+                with self.assertRaisesRegex(ValueError, "Duplicado entre"):
+                    prepare(cfg)
 
     def test_exclusiones_auditadas_cache_y_modelo_binario(self):
         with tempfile.TemporaryDirectory() as temp, contextlib.redirect_stdout(io.StringIO()):

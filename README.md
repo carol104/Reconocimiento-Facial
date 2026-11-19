@@ -27,14 +27,22 @@ dataset/
     manuel_ramirez/sesion1/ ... sesion5/
 ```
 
-| Partición de identidad | Sesiones completas de cada autorizado |
-|---|---|
-| Entrenamiento | sesion1, sesion2, sesion3 |
-| Validación | sesion4 |
-| Prueba | sesion5 |
+Con `fuentes.reparto_identidad: "mezclado"`, se barajan las fotos de todas las
+sesiones de cada persona con semilla fija antes de repartirlas:
 
-La asignación está en `fuentes.sesiones`; registra allí las sesiones nuevas antes
-de preparar de nuevo. El programa no deduce fechas a partir del nombre.
+| Partición de identidad | Fotos de cada persona |
+|---|---|
+| Entrenamiento | 60 % |
+| Validación | 20 % |
+| Prueba | 20 % |
+
+Las fotos originales no se mueven. `fuentes.sesiones` enumera las sesiones que se
+leen; sus grupos no deciden el destino en modo mezclado. Registra allí las sesiones
+nuevas antes de preparar de nuevo. Para separar sesiones completas usa
+`fuentes.reparto_identidad: "sesiones"` (el modo por defecto si se omite la opción).
+El reparto mezclado puede colocar fotogramas muy parecidos en train, val y test;
+sus métricas no demuestran generalización a nuevas sesiones. Mezclar no elimina
+por sí solo asociaciones con lentes, fondos o iluminación.
 Human faces se divide 60/20/20 por clase y semilla fija. Male y female se unen
 como **humano**; no se entrena género. Se usan las carpetas, porque el CSV contiene
 rutas absolutas del ordenador del autor del dataset.
@@ -54,8 +62,10 @@ python app.py entrenar --algoritmo todos --tarea identidad
 `preparar` crea `artefactos/particiones.json` con rutas, etiquetas, sesiones y
 hashes, sin copiar fotos. Omite duplicados exactos de archivos/píxeles y pone en
 cuarentena las imágenes con etiquetas humano/objeto contradictorias. Registra
-ambos casos en el manifiesto. Un duplicado entre sesiones de webcam, personas o
-tareas detiene la preparación. No detecta todos los duplicados aproximados.
+ambos casos en el manifiesto. Un duplicado entre personas o tareas detiene la
+preparación. Entre sesiones también la detiene en modo sesiones; en modo mezclado
+se conserva una sola copia por persona antes de repartir. No detecta todos los
+duplicados aproximados.
 
 `entrenar` prepara automáticamente si no hay manifiesto. Verifica los hashes
 antes de reutilizar `datos_cache.joblib`. Si cambias las fotos, ejecuta `preparar`;
