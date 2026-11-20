@@ -18,7 +18,7 @@ from sistema.reportes import comparar
 class FuentesTests(unittest.TestCase):
     def crear_fuentes(self, root):
         rng = np.random.default_rng(12)
-        cfg = {"seed": 42, "autorizados": ["a", "b", "c", "d"],
+        cfg = {"seed": 42, "aumentos_por_imagen": 0, "autorizados": ["a", "b", "c", "d"],
             "artefactos": str(root / "salida"), "rostro_minimo_px": 100,
             "fuentes": {"webcam": str(root / "webcam"), "humanos": str(root / "humanos"),
                 "sesiones": {"train": ["s1", "s2", "s3"], "val": ["s4"], "test": ["s5"]}}}
@@ -110,7 +110,7 @@ class FuentesTests(unittest.TestCase):
             preparar_fuentes(cfg)
             vision = Mock()
             vector = np.ones(8, dtype=np.float32) / np.sqrt(8)
-            crop = np.zeros((3, 64, 64), dtype=np.float32)
+            crop = np.zeros((64, 64, 1), dtype=np.float32)
             calls = 0
 
             def extract(frame):
@@ -121,6 +121,7 @@ class FuentesTests(unittest.TestCase):
                 return vector, crop, None
 
             vision.extraer.side_effect = extract
+            vision.recortar_rostro.side_effect = lambda frame, face: frame
             data = cargar_fuentes(cfg, vision)
             audit = json.loads((root / "salida/calidad_datos.json").read_text(encoding="utf-8"))
             self.assertEqual(len(audit["exclusiones"]), 1)

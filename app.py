@@ -16,19 +16,27 @@ from clasificacion import NOMBRES
 from reconocimiento import cargar_config as cargar
 
 
+def fuente_camara(value):
+    if str(value).isdigit():
+        return int(value)
+    if str(value).startswith(("http://", "https://", "rtsp://")):
+        return value
+    raise argparse.ArgumentTypeError("Usa un índice USB o una URL HTTP/RTSP de cámara.")
+
+
 def parser():
     root = argparse.ArgumentParser(description="Acceso facial de cuatro personas")
     root.add_argument("--config", default="config.json")
     root.add_argument("--algoritmo", choices=(*NOMBRES, "todos"), default="todos", help="Algoritmo clasificador a utilizar")
-    root.add_argument("--camara", type=int, default=0, help="Índice de la cámara")
+    root.add_argument("--camara", type=fuente_camara, default=0, help="Índice USB o URL de cámara ESP32")
     root.add_argument("--hardware", action="store_true", help="Activar relé si pasan las verificaciones")
     root.add_argument("--sin-ventana", action="store_true", help="Ejecutar en modo sin interfaz gráfica")
     root.add_argument("--no-entrenar", action="store_true", help="Omitir reentrenamiento previo a la cámara")
     root.add_argument("--tarea", choices=("todos", "humanos", "identidad"), default="todos")
 
     sub = root.add_subparsers(dest="comando", required=False)
-    sub.add_parser("preparar", help="Separar las fuentes por sesiones y crear manifiesto")
-    sub.add_parser("descargar-modelos", help="Descargar YuNet y SFace oficiales")
+    sub.add_parser("preparar", help="Repartir las fuentes según la configuración y crear manifiesto")
+    sub.add_parser("descargar-modelos", help="Descargar y configurar YuNet solo para detectar rostros")
     pad = sub.add_parser("entrenar-pad", help="Entrenar CNN antispoofing con reales y ataques")
     pad.add_argument("--datos", default="dataset_pad")
     pad.add_argument("--epocas", type=int, default=30)
@@ -37,7 +45,7 @@ def parser():
     train.add_argument("--tarea", choices=("todos", "humanos", "identidad"), default="todos")
     run = sub.add_parser("ejecutar", help="Reconocer desde cámara; simulación por defecto")
     run.add_argument("--algoritmo", choices=(*NOMBRES, "todos"), default="todos")
-    run.add_argument("--camara", type=int, default=0)
+    run.add_argument("--camara", type=fuente_camara, default=0)
     run.add_argument("--hardware", action="store_true", help="Activar relé si pasan las verificaciones")
     run.add_argument("--sin-ventana", action="store_true")
     run.add_argument("--no-entrenar", action="store_true", help="Omitir reentrenamiento previo a la cámara")
@@ -62,7 +70,12 @@ def main():
         print("Estructura creada. Añade imágenes de sesiones independientes; consulta README.md.")
     elif args.comando == "descargar-modelos":
         from sistema.modelos import descargar
-        descargar(cfg)
+        detector = descargar(cfg)
+        config_path = Path(args.config).resolve()
+        saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+        saved_config["detector"] = detector
+        saved_config["reconocedor"] = None
+        config_path.write_text(json.dumps(saved_config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     elif args.comando == "entrenar-pad":
         from percepcion_computacional.vision import Vision
         from sistema.entrenar_pad import entrenar_pad
@@ -76,7 +89,7 @@ def main():
         names = NOMBRES if args.algoritmo == "todos" else (args.algoritmo,)
         if "cnn" in names:
             import importlib.util
-            if importlib.util.find_spec("torch") is None:
+            if importlib.util.find_spec("tensorflow") is None:
                 raise ValueError("Para CNN instala requirements-cnn.txt antes de entrenar.")
         reports = []
         if "fuentes" in cfg:
@@ -108,7 +121,7 @@ def main():
             names = NOMBRES if args.algoritmo == "todos" else (args.algoritmo,)
             if "cnn" in names:
                 import importlib.util
-                if importlib.util.find_spec("torch") is None:
+                if importlib.util.find_spec("tensorflow") is None:
                     raise ValueError("Para CNN instala requirements-cnn.txt antes de entrenar.")
             vision = Vision(cfg)
             if "fuentes" in cfg:
@@ -118,7 +131,11 @@ def main():
                 for name in names:
                     human_path = Path(cfg["artefactos"]) / f"humanos_{name}.joblib"
                     if human_path.exists():
-                        human_art = cargar_humanos(name, cfg)
+                        try:
+                            human_art = cargar_humanos(name, cfg)
+                        except ValueError:
+                            print(f"Reentrenando filtro {name}: cambió el backend o el preprocesamiento.")
+                            _, human_art = entrenar_humanos(name, data["humanos"], cfg)
                     else:
                         _, human_art = entrenar_humanos(name, data["humanos"], cfg)
                     entrenar(name, data["identidad"], cfg, humanos=human_art)
@@ -135,7 +152,6 @@ def main():
         print(f" [PASO 2/2] ABRIENDO CÁMARA PARA DETECCIÓN EN VIVO")
         print("=" * 62 + "\n")
         from percepcion_computacional.camara import ejecutar
-        ejecutar(cfg, args.algoritmo, args.camara, args.hardware, not args.sin_ventana)
         ejecutar(cfg, args.algoritmo, args.camara, args.hardware, not args.sin_ventana)
 
 

@@ -5,6 +5,7 @@ import cv2
 import joblib
 import numpy as np
 from algoritmos.cnn import CNN
+from sistema.preprocesamiento import contrato, entrada_entrenamiento
 from sistema.datos import EXTENSIONES
 from sistema.vision import sha256, tensor_pad
 
@@ -37,14 +38,16 @@ def entrenar_pad(cfg, root, vision, epochs=30):
                     _, _, face = vision.extraer(frame)
                 except ValueError as exc:
                     raise ValueError(f"{path}: {exc}") from exc
-                X.append(tensor_pad(frame, face))
+                X.append(tensor_pad(frame, face, cfg))
                 y.append(kind)
                 paths.append(str(path.relative_to(root)))
             if y.count(kind) < 3:
                 raise ValueError(f"PAD: requiere >= 3 imágenes por clase en {split}; usa muchas más en práctica.")
         data[split] = (np.asarray(X), np.asarray(y), paths)
     model = CNN(cfg["seed"], epochs)
-    model.fit(*data["train"][:2])
+    train_crops, labels = data["train"][:2]
+    X_fit, y_fit = entrada_entrenamiento({"crops": train_crops, "labels": labels}, cfg, "cnn")
+    model.fit(X_fit, y_fit, validation_data=data["val"][:2])
     index = list(model.classes_).index("real")
     scores = {s: model.predict_proba(part[0])[:, index] for s, part in data.items()}
     val_labels = data["val"][1]
@@ -69,7 +72,7 @@ def entrenar_pad(cfg, root, vision, epochs=30):
                                           - report["metricas"]["train"]["error_clasificacion"])
     output = Path(cfg["artefactos"])
     output.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"tipo": "pad_cnn_v1", "modelo": model, "umbral": threshold}, output / "pad.joblib")
+    joblib.dump({"tipo": "pad_cnn_keras_v2", "modelo": model, "umbral": threshold, "preprocesamiento": contrato(cfg)}, output / "pad.joblib")
     (output / "pad.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report["metricas"], indent=2))
     print(f"Brecha PAD: {report['brecha_test_menos_train'] * 100:.2f} puntos porcentuales")

@@ -1,11 +1,28 @@
 {
-  "autorizados": ["alexis_lopez", "carol_canizares", "jose_manzano", "manuel_ramirez"],
+  "autorizados": [
+    "alexis_lopez",
+    "carol_canizares",
+    "jose_manzano",
+    "manuel_ramirez"
+  ],
   "dataset": "dataset",
   "fuentes": {
     "reparto_identidad": "mezclado",
     "webcam": "dataset/webcam",
     "humanos": "dataset/Human faces and object dataset/Human faces and object dataset/Images",
-    "sesiones": {"train": ["sesion1", "sesion2", "sesion3"], "val": ["sesion4"], "test": ["sesion5"]}
+    "sesiones": {
+      "train": [
+        "sesion1",
+        "sesion2",
+        "sesion3"
+      ],
+      "val": [
+        "sesion4"
+      ],
+      "test": [
+        "sesion5"
+      ]
+    }
   },
   "artefactos": "artefactos",
   "detector": null,
@@ -21,13 +38,36 @@
     "ancho": 128,
     "alto": 128,
     "escala": 0.00392156862745098,
-    "media": [0, 0, 0],
+    "media": [
+      0,
+      0,
+      0
+    ],
     "rgb": true,
     "salida": "logits",
     "indice_real": 1,
     "umbral": 0.98
   },
   "despliegue_validado": false,
-  "rele": {"pin_bcm": 17, "activo_alto": true, "segundos": 3, "enfriamiento": 10},
-  "arduino": {"puerto": null, "baudios": 9600, "activo": true}
+  "rele": {
+    "pin_bcm": 17,
+    "activo_alto": true,
+    "segundos": 3,
+    "enfriamiento": 10
+  },
+  "arduino": {
+    "puerto": null,
+    "baudios": 9600,
+    "activo": true
+  },
+  "preprocesamiento": {
+    "bordes": "ninguno"
+  },
+  "aumentos_por_imagen": 1,
+  "cnn": {
+    "epochs": 30,
+    "dropout": 0.3,
+    "l2": 0.001,
+    "patience": 6
+  }
 }

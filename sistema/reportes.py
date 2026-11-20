@@ -21,7 +21,10 @@ def comparar(reports, cfg):
         emitir(f"{report.get('tarea', 'identidad'):<12} {report['algoritmo']:<17} " +
               " ".join(f"{v * 100:>12.2f}" for v in values))
         rows.append({"tarea": report.get("tarea", "identidad"), "algoritmo": report["algoritmo"],
+            "accuracy_train": 1 - values[0], "accuracy_val": 1 - values[1], "accuracy_test": 1 - values[2],
             "error_train": values[0], "error_val": values[1], "error_test": values[2],
+            "segundos_ajuste": report.get("segundos_ajuste"),
+            "inferencia_host_ms": report.get("inferencia_host_ms"),
             "brecha_test_menos_train": values[2] - values[0],
             **{f"muestras_{s}": report["metricas"][s]["muestras"] for s in ("train", "val", "test")},
             **{f"error_acceso_con_calidad_{s}": report["metricas"][s].get("error_acceso_incluyendo_calidad")
@@ -40,3 +43,13 @@ def comparar(reports, cfg):
             values = [report["metricas"][s]["error_cascada_incluyendo_calidad"] for s in ("train", "val", "test")]
             emitir(f"{report['algoritmo']:<17} " + " ".join(f"{v * 100:>12.2f}" for v in values))
     (output / "resumen_errores.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    identities = [r for r in reports if r.get("tarea") == "identidad"]
+    if identities:
+        best = min(identities, key=lambda r: (
+            r["metricas"]["val"].get("error_cascada_incluyendo_calidad", r["metricas"]["val"]["error_acceso"]),
+            r.get("inferencia_host_ms", float("inf"))))
+        recommendation = {"algoritmo": best["algoritmo"],
+            "criterio": "Menor error de acceso/cascada en validación; empate por latencia del clasificador en el host.",
+            "inferencia_host_ms": best.get("inferencia_host_ms"),
+            "nota": "Orientativo entre los modelos de esta ejecución. No usa test ni cambia el modelo activo. La latencia excluye cámara, detección, preprocesamiento y comunicación."}
+        (output / "seleccion_modelo.json").write_text(json.dumps(recommendation, ensure_ascii=False, indent=2), encoding="utf-8")

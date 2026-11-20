@@ -14,7 +14,7 @@ class ArduinoControlador:
         self.puerto = None
         self.baudios = 9600
 
-        cfg_arduino = (cfg or {}).get("arduino", {})
+        cfg_arduino = (cfg or {}).get("esp32", (cfg or {}).get("arduino", {}))
         puerto_configurado = cfg_arduino.get("puerto", None)
         self.baudios = cfg_arduino.get("baudios", 9600)
         activo = cfg_arduino.get("activo", True)
@@ -35,13 +35,13 @@ class ArduinoControlador:
                 hwid = (p.hwid or "").lower()
                 # Priorizar dispositivos identificados como Arduino o convertidores serial comunes
                 if any(k in desc or k in hwid for k in ("arduino", "ch340", "usb-serial", "ftdi", "cp210", "ttyacm", "ttyusb")):
-                    puertos_a_probar.insert(0, p.device)
+                    puertos_a_probar.insert(1 if puerto_configurado else 0, p.device)
                 elif p.device not in puertos_a_probar:
                     puertos_a_probar.append(p.device)
         except Exception:
             pass
 
-        for port in puertos_a_probar:
+        for port in dict.fromkeys(puertos_a_probar):
             try:
                 self.serial_conn = serial.Serial(port, self.baudios, timeout=1)
                 time.sleep(1.5)  # Tiempo de inicialización tras reset serial de Arduino

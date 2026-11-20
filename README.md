@@ -76,10 +76,32 @@ El entrenamiento se detiene si quedan menos de 3 muestras por persona en train o
 menos de 1 en val/test. Las exclusiones cuentan como rechazos en el error de acceso
 incluyendo calidad y en el error de la cascada completa.
 
-En humano/objeto, CNN usa RGB de 64×64 y los otros cinco algoritmos usan HOG sobre
-64×64. En identidad, CNN usa recortes alineados y los otros cinco usan SFace. Los
-escaladores y aumentos se ajustan/aplican solo en entrenamiento. La cámara usa
-el filtro humano/objeto del mismo algoritmo antes del reconocimiento.
+Todos los modelos comparten redimensionamiento a 64×64, conversión a gris,
+suavizado gaussiano 3×3 y normalización 0–1. `preprocesamiento.bordes` permite
+`ninguno` (por defecto), `sobel`, `prewitt`, `roberts` o `laplaciano`, mezclados
+suavemente con la imagen gris. La CNN recibe NHWC `(N,64,64,1)` y los otros cinco
+clasificadores reciben HOG normalizado calculado del mismo gris procesado.
+No se usa SFace ni otro descriptor aprendido preentrenado. YuNet es opcional y
+solo localiza rostros; sin él se mantiene Haar. Identidad y filtro humano/objeto
+se entrenan desde cero. El filtro se evalúa sobre el mismo recorte facial que
+recibirá en cámara. No hay alineación por landmarks en este backend.
+
+`aumentos_por_imagen: 1` añade una variante por foto solo durante el ajuste, con
+giros de hasta 8°, traslación, escala, reflejo y variación suave de brillo/contraste.
+Se aplican los mismos aumentos y semilla a los seis clasificadores; validación y
+prueba conservan sus imágenes originales. Los escaladores se ajustan solo con
+entrenamiento. Las métricas de train se calculan en las fotos originales.
+
+La CNN usa TensorFlow/Keras `Sequential`: Conv2D(16,3,valid,stride=1), MaxPool(2),
+Conv2D(32,3,valid,stride=1), MaxPool(2), Dropout, Flatten, Dense(64,relu,L2) y
+Dense(n_clases,softmax). `cnn` configura `epochs`, `dropout`, `l2` y `patience`.
+Cada ajuste inicia pesos nuevos. La parada anticipada y la restauración de pesos
+usan exclusivamente val; test se utiliza para informar. Dropout regulariza el
+modelo; no garantiza acelerar el entrenamiento.
+
+**Migración:** los modelos anteriores y la caché RGB/SFace son incompatibles.
+La caché se recalcula automáticamente; vuelve a entrenar ambas tareas antes de
+usar `--no-entrenar`. No se borran los artefactos anteriores por anticipado.
 
 Se imprimen errores de entrenamiento, validación y prueba de los seis algoritmos
 en **ambas tareas**, y una tabla final. Resultados:
@@ -91,6 +113,11 @@ en **ambas tareas**, y una tabla final. Resultados:
   las exclusiones de calidad. El error de clasificación se mide en rostros válidos.
 - `comparacion.json` y `comparacion.csv`: resultados de la ejecución actual.
   El CSV expresa errores entre 0 y 1; la consola los muestra en porcentaje.
+- El CSV incluye accuracy train/val/test, tiempo de ajuste y latencia individual
+  del clasificador en el host. Esa latencia no incluye cámara, detección,
+  preprocesamiento ni comunicación. `seleccion_modelo.json` recomienda entre los
+  modelos de esa ejecución por error de acceso/cascada en val y latencia en caso
+  de empate; nunca decide usando test ni cambia el algoritmo activo.
 - `resumen_errores.txt`: las tablas de errores en porcentaje, listas para leer.
 - `entrenamiento.log`: salida de la ejecución realizada durante la preparación.
 
@@ -130,15 +157,16 @@ python app.py descargar-modelos
 python app.py preparar
 ```
 
-PyTorch necesita una rueda compatible con tu versión de Python y arquitectura.
-Si no está disponible para la Pi, entrena en un ordenador compatible y usa un
-modelo PAD ONNX en la Pi; CNN necesita PyTorch también en inferencia. Los otros
-cinco algoritmos funcionan sin PyTorch. Usa las mismas versiones de librerías al
+TensorFlow necesita una rueda compatible con tu versión de Python y arquitectura.
+Si no está disponible para la Pi, ejecuta la CNN en un ordenador compatible;
+la CNN Keras necesita TensorFlow también en inferencia. Los otros
+cinco algoritmos funcionan sin TensorFlow. Usa las mismas versiones de librerías al
 trasladar artefactos joblib entre equipos. En una Pi sin escritorio sustituye
 `opencv-python` por `opencv-python-headless` y usa `--sin-ventana`; no instales
 ambos paquetes OpenCV en el mismo entorno.
 
-Los modelos públicos YuNet y SFace se descargan de OpenCV Zoo. Los hashes usados
+El detector público YuNet se descarga de OpenCV Zoo. `descargar-modelos` actualiza
+la ruta `detector` en tu configuración y mantiene `reconocedor: null`. Los hashes usados
 quedan en `artefactos/modelos.json`; cada modelo entrenado vincula esos hashes
 para evitar usar otros descriptores por accidente. El comando de descarga no
 sobrescribe modelos existentes y requiere Internet. Las dependencias instaladas
@@ -200,9 +228,9 @@ python app.py entrenar --algoritmo svm
 
 Las seis opciones son `ann`, `cnn`, `svm`, `knn`, `random_forest` y
 `arbol_decision`. ANN es un perceptrón multicapa. CNN es una red convolucional
-PyTorch que aprende sobre recortes RGB alineados de 64×64; puede necesitar muchos
-más datos y potencia. Los otros cinco modelos usan descriptores SFace normalizados
-y la misma partición. Por tanto la comparación es entre sistemas completos con
+Keras que aprende desde cero sobre recortes grises de 64×64; puede necesitar muchos
+más datos y potencia. Los otros cinco modelos usan HOG del mismo preprocesamiento
+y la misma partición y aumentos. Por tanto la comparación es entre sistemas completos con
 esas representaciones, no una comparación aislada de clasificadores sobre las
 mismas entradas. Todos comparten el mismo filtro de identidad abierta.
 
@@ -259,7 +287,8 @@ Este comando entrena otra CNN, calibra solo en val y genera `artefactos/pad.jobl
 y `pad.json` con error train/val/test, brecha, APCER (ataques aceptados) y BPCER
 (personas reales rechazadas). Copia a `config.json` la ruta `pad.modelo` y el valor
 exacto de `pad.umbral` que imprime el comando. El PAD local usa recorte de rostro
-con contexto 1.5×, RGB 64×64 y valores 0–1; no requiere ONNX. Si todos los reales
+con contexto 1.5×, gris 64×64, suavizado y valores 0–1, con el mismo backend Keras;
+no requiere ONNX. Los PAD joblib antiguos deben reentrenarse. Si todos los reales
 son rechazados, ese PAD no es útil aunque APCER sea cero: mejora datos/modelo.
 
 También se admite un modelo **ONNX binario ya entrenado**. Configura en `pad`
@@ -280,6 +309,32 @@ no cambies el reflejo horizontal del video sin comprobarlas. Para una puerta con
 exigencia de seguridad real usa sensor de profundidad/IR y un segundo factor,
 además de validar el sistema completo con ataques no vistos. El segundo factor
 y un sensor IR/profundidad no están implementados en este prototipo RGB.
+
+## ESP32 y fuente de cámara
+
+El ordenador entrena y ejecuta los clasificadores. ESP32 recibe la decisión por
+USB serial y controla el actuador; no se ejecuta TensorFlow dentro del ESP32.
+Se mantiene el protocolo existente: `1\n` para activar y `0\n` para desactivar,
+incluyendo el apagado al cerrar el programa. La detección y el temporizador de
+activación conservan su lógica anterior. No se ha añadido control por Wi-Fi.
+
+Puedes añadir a `config.json` (sustituye el puerto por el de tu dispositivo):
+
+```json
+"esp32": {"puerto": "COM7", "baudios": 115200, "activo": true}
+```
+
+Si no existe `esp32`, se conserva la configuración `arduino` actual. El firmware
+de ejemplo está en `firmware/esp32_acceso/esp32_acceso.ino`; ajusta su pin/polaridad
+al montaje. No se ha probado sobre hardware físico. Ese ejemplo usa GPIO 23 de
+un ESP32 convencional; una placa ESP32-CAM necesita elegir un pin disponible.
+
+La cámara puede seguir siendo USB o proporcionar un stream HTTP/RTSP compatible
+con OpenCV, incluyendo una ESP32-CAM. Ejemplo con una URL de tu dispositivo:
+
+```bash
+python app.py ejecutar --algoritmo cnn --no-entrenar --camara http://IP_DE_TU_CAMARA:81/stream
+```
 
 ## Cámara y puerta
 
@@ -338,6 +393,8 @@ prueban la cámara o los pines físicos.
 ## Referencias
 
 - [OpenCV: detección YuNet, alineación y reconocimiento SFace](https://docs.opencv.org/4.13.0/d0/dd4/tutorial_dnn_face.html)
+- [TensorFlow/Keras: capas convolucionales](https://www.tensorflow.org/api_docs/python/tf/keras/layers/Conv2D)
+- [TensorFlow/Keras: Dropout](https://www.tensorflow.org/api_docs/python/tf/keras/layers/Dropout)
 - [Modelos y licencias de OpenCV Zoo](https://github.com/opencv/opencv_zoo)
 - [scikit-learn: pipelines de preprocesamiento y clasificación](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html)
 - [GPIO Zero: dispositivos de salida](https://gpiozero.readthedocs.io/en/stable/api_output.html)

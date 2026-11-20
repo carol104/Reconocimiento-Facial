@@ -9,6 +9,8 @@ from sklearn.model_selection import train_test_split
 from sistema.datos import EXTENSIONES
 from sistema.vision import sha256
 
+from sistema.preprocesamiento import representar, contrato
+
 PARTICIONES = ("train", "val", "test")
 
 
@@ -142,20 +144,15 @@ def cargar_manifiesto(cfg):
     return manifest
 
 
-def rasgos_humanos(frame):
-    image = cv2.resize(frame, (64, 64))
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
-    vector = hog.compute(gray).reshape(-1)
-    crop = np.ascontiguousarray(image[:, :, ::-1].transpose(2, 0, 1), dtype=np.float32) / 255
-    return vector, crop
+def rasgos_humanos(frame, cfg=None):
+    return representar(frame, cfg)
 
 
 def cargar_fuentes(cfg, vision):
     manifest = cargar_manifiesto(cfg)
     signature = {"manifiesto": sha256(Path(cfg["artefactos"]) / "particiones.json"),
                  "detector": sha256(cfg.get("detector")), "reconocedor": sha256(cfg.get("reconocedor")),
-                 "rostro_minimo_px": cfg["rostro_minimo_px"], "preprocesamiento": 3}
+                 "rostro_minimo_px": cfg["rostro_minimo_px"], "preprocesamiento": contrato(cfg)}
     # Caché local de arrays, nunca pickle de una fuente externa.
     import joblib
     cache = Path(cfg["artefactos"]) / "datos_cache.joblib"
@@ -176,15 +173,15 @@ def cargar_fuentes(cfg, vision):
                 frame = leer_imagen(row["path"])
                 if task == "identidad":
                     try:
-                        vector, crop, _ = vision.extraer(frame)
+                        vector, crop, face = vision.extraer(frame)
                     except ValueError as exc:
                         exclusions.append({**row, "motivo": str(exc)})
                         continue
-                    hv, hc = rasgos_humanos(frame)
+                    hv, hc = rasgos_humanos(vision.recortar_rostro(frame, face), cfg)
                     human_vectors.append(hv)
                     human_crops.append(hc)
                 else:
-                    vector, crop = rasgos_humanos(frame)
+                    vector, crop = rasgos_humanos(frame, cfg)
                 vectors.append(vector)
                 crops.append(crop)
                 labels.append(row["label"])

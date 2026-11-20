@@ -189,14 +189,7 @@ def ejecutar(cfg, algoritmo, camera=0, hardware=False, preview=True):
                         # 2. CLASIFICACIÓN DE ACCESO: RECONOCIMIENTO Y PERMITIR / NO
                         # ==============================================================
                         try:
-                            aligned = vision.recognizer.alignCrop(frame, face)
-                            vector = vision.recognizer.feature(aligned).flatten()
-                            norm = np.linalg.norm(vector)
-                            if norm < 1e-8:
-                                continue
-                            vector = vector / norm
-                            crop = cv2.resize(aligned, (64, 64))
-                            tensor = np.ascontiguousarray(crop[:, :, ::-1].transpose(2, 0, 1), dtype=np.float32) / 255
+                            vector, tensor = vision.representar_rostro(frame, face)
                             person, score, margin = identificar(artifact, vector, tensor)
 
                             # 2.1 Clasificar si permitir o no

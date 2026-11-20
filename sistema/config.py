@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from sistema.preprocesamiento import contrato
 
 
 def cargar(path):
@@ -36,4 +37,13 @@ def cargar(path):
         raise ValueError("Enfriamiento entre 1 y 3600 s y reto entre 3 y 120 s.")
     if not isinstance(cfg["despliegue_validado"], bool) or not isinstance(cfg["rele"]["activo_alto"], bool):
         raise ValueError("despliegue_validado y activo_alto deben ser booleanos JSON.")
+    contrato(cfg)
+    count = cfg.get("aumentos_por_imagen", 1)
+    if not isinstance(count, int) or not 0 <= count <= 10:
+        raise ValueError("aumentos_por_imagen debe estar entre 0 y 10.")
+    cnn = cfg.get("cnn", {})
+    if (not isinstance(cnn.get("epochs", 30), int) or cnn.get("epochs", 30) < 1
+            or not isinstance(cnn.get("patience", 6), int) or cnn.get("patience", 6) < 1
+            or not 0 <= cnn.get("dropout", .3) < 1 or cnn.get("l2", .001) < 0):
+        raise ValueError("Configuracion CNN invalida: revisa epochs, patience, dropout y l2.")
     return cfg

@@ -1,10 +1,13 @@
 import json
+from time import perf_counter
 from pathlib import Path
 import joblib
 import numpy as np
 from sklearn.metrics import confusion_matrix
 from algoritmos import crear
 from sistema.vision import sha256
+
+from sistema.preprocesamiento import contrato, entrada_entrenamiento, latencia_modelo
 
 DESCONOCIDO = "__desconocido__"
 
@@ -34,6 +37,7 @@ def metricas(y, predicted, decisions, people):
     return {
         "muestras": len(y),
         "error_clasificacion_conocidos": float(np.mean(predicted[known] != y[known])),
+        "accuracy_conocidos": float(np.mean(predicted[known] == y[known])),
         "error_acceso": float(np.mean(decisions != y)),
         "rechazo_o_identidad_incorrecta_conocidos": float(np.mean(decisions[known] != y[known])),
         "aceptacion_desconocidos": float(np.mean(decisions[unknown] != DESCONOCIDO)) if unknown.any() else None,
@@ -48,7 +52,19 @@ def entrenar(nombre, data, cfg, humanos=None):
     train = data["train"]
     model = crear(nombre, cfg["seed"])
     key = "crops" if nombre == "cnn" else "vectors"
-    model.fit(train[key], train["labels"])
+    start_fit = perf_counter()
+    X_fit, y_fit = entrada_entrenamiento(train, cfg, nombre)
+    if nombre == "cnn":
+        options = cfg.get("cnn", {})
+        for option in ("epochs", "dropout", "l2", "patience"):
+            if option in options:
+                setattr(model, option, options[option])
+        val_known = data["val"]["labels"] != DESCONOCIDO
+        model.fit(X_fit, y_fit, validation_data=(data["val"][key][val_known], data["val"]["labels"][val_known]))
+    else:
+        model.fit(X_fit, y_fit)
+    segundos_ajuste = perf_counter() - start_fit
+    latencia_ms = latencia_modelo(model, data["val"][key])
     centers = plantillas(train["vectors"], train["labels"], people)
     predictions = {split: model.predict(part[key]) for split, part in data.items()}
     # Calibración únicamente con val. Test nunca decide los umbrales.
@@ -83,6 +99,12 @@ def entrenar(nombre, data, cfg, humanos=None):
     access_gap = stats["test"]["error_acceso"] - stats["train"]["error_acceso"]
     report = {
         "tarea": "identidad", "algoritmo": nombre, "seed": cfg["seed"], "metricas": stats,
+        "preprocesamiento": contrato(cfg), "muestras_ajuste": len(y_fit),
+        "segundos_ajuste": segundos_ajuste, "inferencia_host_ms": latencia_ms,
+        "historial_cnn": getattr(model, "history_", None),
+        "backend": "tensorflow.keras" if nombre == "cnn" else "scikit-learn",
+        "representacion": "gris 64x64x1" if nombre == "cnn" else "HOG del mismo gris 64x64",
+        "cnn_config": cfg.get("cnn", {}) if nombre == "cnn" else None,
         "brecha_test_menos_train": gap, "brecha_acceso": access_gap,
         "coseno_minimo": float(threshold), "margen_minimo": float(margin),
         "orden_matriz": [*people, DESCONOCIDO],
@@ -94,7 +116,7 @@ def entrenar(nombre, data, cfg, humanos=None):
                 and stats[s]["aceptacion_desconocidos"] == 0 and coverage[s]
                 for s in ("val", "test"))
     artifact = {
-        "version": 1, "algoritmo": nombre, "modelo": model, "personas": people,
+        "version": 2, "preprocesamiento": contrato(cfg), "algoritmo": nombre, "modelo": model, "personas": people,
         "centros": centers, "coseno_minimo": float(threshold), "margen_minimo": float(margin),
         "config_coseno_minimo": cfg["coseno_minimo"], "config_margen_minimo": cfg["margen_minimo"],
         "detector_sha256": sha256(cfg.get("detector")),
@@ -124,8 +146,13 @@ def entrenar(nombre, data, cfg, humanos=None):
 
 def cargar_artefacto(nombre, cfg):
     # joblib/pickle solo debe cargarse de archivos propios y confiables.
+    report_path = Path(cfg["artefactos"]) / f"{nombre}.json"
+    if report_path.exists():
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if report.get("preprocesamiento") != contrato(cfg):
+            raise ValueError("Modelo incompatible: reentrena con el nuevo preprocesamiento.")
     artifact = joblib.load(Path(cfg["artefactos"]) / f"{nombre}.joblib")
-    if artifact["version"] != 1 or artifact["algoritmo"] != nombre or artifact["personas"] != cfg["autorizados"]:
+    if artifact["version"] != 2 or artifact.get("preprocesamiento") != contrato(cfg) or artifact["algoritmo"] != nombre or artifact["personas"] != cfg["autorizados"]:
         raise ValueError("Artefacto incompatible con la configuración actual. Reentrena.")
     if (artifact["config_coseno_minimo"] != cfg["coseno_minimo"]
             or artifact["config_margen_minimo"] != cfg["margen_minimo"]):

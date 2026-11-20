@@ -2,6 +2,7 @@ from pathlib import Path
 import hashlib
 import cv2
 import numpy as np
+from sistema.preprocesamiento import representar, preprocesar, contrato
 
 
 def sha256(path):
@@ -37,7 +38,8 @@ class FaceDetectorHaar:
 
 class FeatureExtractorHOG:
     """Extractor algorítmico de características faciales por gradientes orientados (HOG)."""
-    def __init__(self, size=(64, 64)):
+    def __init__(self, size=(64, 64), cfg=None):
+        self.cfg = cfg or {}
         self.size = size
         self.hog = cv2.HOGDescriptor((64, 64), (16, 16), (8, 8), (8, 8), 9)
 
@@ -52,12 +54,7 @@ class FeatureExtractorHOG:
         return cv2.resize(crop, self.size)
 
     def feature(self, crop):
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        feat = self.hog.compute(gray).reshape(1, -1)
-        norm = np.linalg.norm(feat)
-        if norm > 1e-8:
-            feat = feat / norm
-        return feat
+        return representar(crop, self.cfg)[0][None]
 
 
 class Vision:
@@ -68,10 +65,10 @@ class Vision:
         else:
             self.detector = FaceDetectorHaar(min_size)
 
-        if cfg and cfg.get("reconocedor") and Path(cfg["reconocedor"]).is_file():
-            self.recognizer = cv2.FaceRecognizerSF.create(cfg["reconocedor"], "")
-        else:
-            self.recognizer = FeatureExtractorHOG()
+        self.cfg = cfg or {}
+        if self.cfg.get("reconocedor"):
+            raise ValueError("SFace no se usa en este backend: configura reconocedor: null.")
+        self.recognizer = FeatureExtractorHOG(cfg=self.cfg)
 
         self.min_size = min_size
 
@@ -88,15 +85,23 @@ class Vision:
         x, y, fw, fh = face[:4]
         if min(fw, fh) < self.min_size or x < 0 or y < 0 or x + fw > w or y + fh > h:
             raise ValueError("Rostro pequeño o fuera del encuadre.")
-        aligned = self.recognizer.alignCrop(frame, face)
-        vector = self.recognizer.feature(aligned).flatten()
-        norm = np.linalg.norm(vector)
-        if not np.isfinite(vector).all() or norm < 1e-8:
+        vector, tensor = self.representar_rostro(frame, face)
+        return vector, tensor, face
+
+    def recortar_rostro(self, frame, face):
+        h, w = frame.shape[:2]
+        x, y, fw, fh = face[:4]
+        if min(fw, fh) < self.min_size or x < 0 or y < 0 or x + fw > w or y + fh > h:
+            raise ValueError("Rostro pequeño o fuera del encuadre.")
+        x, y, fw, fh = map(int, (x, y, fw, fh))
+        return frame[y:y + fh, x:x + fw]
+
+    def representar_rostro(self, frame, face):
+        vector, tensor = representar(self.recortar_rostro(frame, face), self.cfg)
+        if not np.isfinite(vector).all() or np.linalg.norm(vector) < 1e-8:
             raise ValueError("Descriptor facial inválido.")
-        # CNN usa imágenes, los otros cinco modelos usan el mismo descriptor.
-        crop = cv2.resize(aligned, (64, 64))
-        tensor = np.ascontiguousarray(crop[:, :, ::-1].transpose(2, 0, 1), dtype=np.float32) / 255
-        return vector / norm, tensor, face
+        return vector, tensor
+
 
 
 def recorte_pad(frame, face):
@@ -107,9 +112,8 @@ def recorte_pad(frame, face):
     return frame[y1:y2, x1:x2]
 
 
-def tensor_pad(frame, face):
-    crop = cv2.resize(recorte_pad(frame, face), (64, 64))
-    return np.ascontiguousarray(crop[:, :, ::-1].transpose(2, 0, 1), dtype=np.float32) / 255
+def tensor_pad(frame, face, cfg=None):
+    return preprocesar(recorte_pad(frame, face), cfg)
 
 
 class PAD:
@@ -122,9 +126,10 @@ class PAD:
             if Path(cfg["modelo"]).suffix == ".joblib":
                 import joblib
                 artifact = joblib.load(cfg["modelo"])
-                if artifact["tipo"] != "pad_cnn_v1" or cfg["umbral"] != artifact["umbral"]:
+                if artifact["tipo"] != "pad_cnn_keras_v2" or cfg["umbral"] != artifact["umbral"]:
                     raise ValueError("Modelo PAD incompatible o umbral diferente del calibrado.")
                 self.local = artifact["modelo"]
+                self.preprocesamiento = artifact["preprocesamiento"]
             else:
                 self.net = cv2.dnn.readNetFromONNX(cfg["modelo"])
         if cfg["salida"] not in ("logits", "probabilidades"):
@@ -133,7 +138,7 @@ class PAD:
     def evaluar(self, frame, face):
         if self.local is not None:
             index = list(self.local.classes_).index("real")
-            score = float(self.local.predict_proba(tensor_pad(frame, face)[None])[0, index])
+            score = float(self.local.predict_proba(tensor_pad(frame, face, {"preprocesamiento": self.preprocesamiento})[None])[0, index])
             return np.isfinite(score) and score >= self.cfg["umbral"], score
         if self.net is None:
             return False, 0.0

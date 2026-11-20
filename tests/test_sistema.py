@@ -17,7 +17,9 @@ from sistema.entrenar_pad import entrenar_pad
 
 
 def config():
-    return cargar(Path(__file__).resolve().parents[1] / "config.json")
+    cfg = cargar(Path(__file__).resolve().parents[1] / "config.json")
+    cfg["aumentos_por_imagen"] = 0
+    return cfg
 
 
 def face(pose):
@@ -97,7 +99,7 @@ class AlgoritmosTests(unittest.TestCase):
         rng = np.random.default_rng(42)
         y = np.repeat(["a", "b", "c", "d"], 4)
         X = np.eye(4)[np.repeat(np.arange(4), 4)] + rng.normal(0, .01, (16, 4))
-        crops = rng.random((16, 3, 64, 64), dtype=np.float32)
+        crops = rng.random((16, 64, 64, 1), dtype=np.float32)
         with tempfile.TemporaryDirectory() as temp:
             for name in NOMBRES:
                 with self.subTest(algoritmo=name):
@@ -129,7 +131,7 @@ class AlgoritmosTests(unittest.TestCase):
                     vectors = np.vstack([vectors, np.eye(8, dtype=np.float32)[4]])
                     labels = np.concatenate([labels, ["__desconocido__"]])
                 data[split] = {"vectors": vectors, "labels": labels,
-                               "crops": np.zeros((len(labels), 3, 64, 64), dtype=np.float32),
+                               "crops": np.zeros((len(labels), 64, 64, 1), dtype=np.float32),
                                "paths": [f"{split}/{i}" for i in range(len(labels))]}
             with contextlib.redirect_stdout(io.StringIO()):
                 report = entrenar("knn", data, cfg)
@@ -174,7 +176,7 @@ class DatosYPADTests(unittest.TestCase):
         from unittest.mock import Mock
         vision = Mock()
         vision.extraer.return_value = (np.ones(8, dtype=np.float32) / np.sqrt(8),
-                                       np.zeros((3, 64, 64), dtype=np.float32), face("CENTRO"))
+                                       np.zeros((64, 64, 1), dtype=np.float32), face("CENTRO"))
         return vision
 
     def test_particiones_y_duplicados(self):

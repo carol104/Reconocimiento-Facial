@@ -1,4 +1,4 @@
-"""Descarga explícita de modelos públicos de OpenCV Zoo; no descarga datasets."""
+"""Descarga del detector YuNet; los clasificadores se entrenan desde cero."""
 import json
 from pathlib import Path
 import urllib.request
@@ -7,14 +7,13 @@ from sistema.vision import sha256
 BASE = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/"
 MODELOS = {
     "detector": "face_detection_yunet/face_detection_yunet_2023mar.onnx",
-    "reconocedor": "face_recognition_sface/face_recognition_sface_2021dec.onnx",
 }
 
 
 def descargar(cfg):
     manifest = {}
     for key, source in MODELOS.items():
-        path = Path(cfg[key])
+        path = Path(cfg.get(key) or Path(cfg["artefactos"]).parent / "modelos" / Path(source).name)
         path.parent.mkdir(parents=True, exist_ok=True)
         url = BASE + source
         if not path.exists():
@@ -30,7 +29,9 @@ def descargar(cfg):
             finally:
                 temp.unlink(missing_ok=True)
         manifest[key] = {"url": url, "sha256": sha256(path)}
+        cfg[key] = str(path.resolve())
     output = Path(cfg["artefactos"])
     output.mkdir(parents=True, exist_ok=True)
     (output / "modelos.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print("Modelos disponibles. Revisa sus licencias en OpenCV Zoo.")
+    return cfg["detector"]
